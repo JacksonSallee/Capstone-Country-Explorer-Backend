@@ -1,0 +1,24 @@
+{
+  "name": "country_explorer",
+  "version": "1.0.0",
+  "description": "This is my version of the capstone project from IBM SkillsBuild for the certificate \"Front End Developer\"",
+  "homepage": "https://github.com/JacksonSallee/Capstone-Country-Explorer#readme",
+  "bugs": {
+    "url": "https://github.com/JacksonSallee/Capstone-Country-Explorer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JacksonSallee/Capstone-Country-Explorer.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "data.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "https": "^1.0.0",
+    "path": "^0.12.7"
+  }
+}
