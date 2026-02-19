@@ -1,7 +1,9 @@
-const https = require("https");
+const axios = require("axios");
+const EventEmitter = require("events");
 
-// REST Countries now expects you to specify fields for the /all endpoint (max 10).
-// We only request what we need to match data.js as closely as possible.
+const countryAPI = new EventEmitter();
+
+// REST Countries /all expects fields= (max 10); keep only what you need
 const FIELDS = [
   "name",
   "capital",
@@ -15,7 +17,8 @@ const FIELDS = [
 
 const API_URL = `https://restcountries.com/v3.1/all?fields=${FIELDS.join(",")}`;
 
-let countriesData;
+let countriesData = null;
+let inFlightPromise = null;
 
 function mapCountry(country) {
   const name = {
@@ -23,7 +26,6 @@ function mapCountry(country) {
     official: country?.name?.official ?? "",
   };
 
-  // REST Countries returns capital as an array (or sometimes missing)
   const capital = Array.isArray(country?.capital)
     ? country.capital[0] ?? ""
     : country?.capital ?? "";
@@ -33,7 +35,6 @@ function mapCountry(country) {
     png: country?.flags?.png ?? "",
   };
 
-  // v3.1 currencies is an object keyed by currency code
   const currencies = country?.currencies
     ? Object.entries(country.currencies).map(([code, info]) => ({
         code,
@@ -42,13 +43,10 @@ function mapCountry(country) {
       }))
     : [];
 
-  // v3.1 languages is an object keyed by language code
-  // Native language names like your data.js uses generally aren't provided,
-  // so we mirror `name` into `nativeName`.
   const languages = country?.languages
     ? Object.values(country.languages).map((langName) => ({
         name: langName ?? "",
-        nativeName: langName ?? "",
+        nativeName: langName ?? "", // REST Countries doesn't provide nativeName like your data.js
       }))
     : [];
 
@@ -65,49 +63,48 @@ function mapCountry(country) {
 }
 
 function fetchCountries({ refresh = false } = {}) {
+  // Keep your old caching behavior
   if (countriesData && !refresh) return Promise.resolve(countriesData);
 
-  return new Promise((resolve, reject) => {
-    const req = https.get(
-      API_URL,
-      { headers: { Accept: "application/json" } },
-      (res) => {
-        let raw = "";
+  // Prevent multiple simultaneous requests
+  if (inFlightPromise && !refresh) return inFlightPromise;
 
-        res.on("data", (chunk) => {
-          raw += chunk;
-        });
+  inFlightPromise = axios
+    .get(API_URL, {
+      headers: { Accept: "application/json" },
+      timeout: 15000,
+    })
+    .then((response) => {
+      const raw = response.data;
 
-        res.on("end", () => {
-          // Handle non-2xx responses (helpful when fields are missing/invalid)
-          if (res.statusCode < 200 || res.statusCode >= 300) {
-            return reject(
-              new Error(
-                `REST Countries request failed: ${res.statusCode} ${res.statusMessage} - ${raw.slice(
-                  0,
-                  200
-                )}`
-              )
-            );
-          }
+      const mapped = Array.isArray(raw) ? raw.map(mapCountry) : [];
+      countriesData = mapped;
 
-          try {
-            const parsed = JSON.parse(raw);
-            countriesData = Array.isArray(parsed)
-              ? parsed.map(mapCountry)
-              : [];
-            resolve(countriesData);
-          } catch (err) {
-            reject(err);
-          }
-        });
-      }
-    );
+      // Emit the final mapped payload (most useful)
+      countryAPI.emit("data", mapped);
 
-    req.on("error", (err) => reject(err));
-  });
+      return mapped;
+    })
+    .catch((err) => {
+      countryAPI.emit("error", err);
+      throw err;
+    })
+    .finally(() => {
+      inFlightPromise = null;
+    });
+
+  return inFlightPromise;
 }
 
+// If anywhere you were calling countryAPI.fetchCountries(), keep it working too:
+countryAPI.fetchCountries = fetchCountries;
+
+// Optional: keep your error logging centralized
+countryAPI.on("error", (err) => {
+  console.error("Error fetching countries data:", err?.message || err);
+});
+
 module.exports = {
-  fetchCountries,
+  fetchCountries, // ✅ keeps controller.js working as-is
+  countryAPI,     // ✅ lets you keep using events if you want
 };
